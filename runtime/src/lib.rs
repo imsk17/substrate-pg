@@ -38,8 +38,8 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
-/// Import the template pallet.
-pub use pallet_template;
+/// Import the claim_pallet pallet.
+pub use claim_pallet;
 
 // Make the WASM binary available.
 #[cfg(feature = "std")]
@@ -92,8 +92,8 @@ pub mod opaque {
 //   https://substrate.dev/docs/en/knowledgebase/runtime/upgrades#runtime-versioning
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-	spec_name: create_runtime_str!("node-template"),
-	impl_name: create_runtime_str!("node-template"),
+	spec_name: create_runtime_str!("node-claim_pallet"),
+	impl_name: create_runtime_str!("node-claim_pallet"),
 	authoring_version: 1,
 	// The version of the runtime specification. A full node will not attempt to use its native
 	//   runtime in substitute for the on-chain Wasm runtime unless all of `spec_name`,
@@ -267,8 +267,8 @@ impl pallet_sudo::Config for Runtime {
 	type Call = Call;
 }
 
-/// Configure the pallet-template in pallets/template.
-impl pallet_template::Config for Runtime {
+/// Configure the pallet-claim_pallet in pallets/claim_pallet.
+impl claim_pallet::Config for Runtime {
 	type Event = Event;
 }
 
@@ -287,8 +287,8 @@ construct_runtime!(
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
-		// Include the custom logic from the pallet-template in the runtime.
-		TemplateModule: pallet_template::{Pallet, Call, Storage, Event<T>},
+		// Include the claim logic from the pallet-claim_pallet in the runtime.
+		Claims: claim_pallet::{Pallet, Call, Storage, Event<T>},
 		Nicks: pallet_nicks::{Pallet, Call, Storage, Event<T>},
 		Contracts: pallet_contracts::{Pallet, Call, Storage, Event<T>},
 	}
@@ -531,7 +531,7 @@ impl_runtime_apis! {
    }
 }
 
-// Add this code block to your template for Nicks:
+// Add this code block to your claim_pallet for Nicks:
 parameter_types! {
     // Choose a fee that incentivizes desireable behavior.
     pub const NickReservationFee: u128 = 100;
