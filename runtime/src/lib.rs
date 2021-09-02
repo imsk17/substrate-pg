@@ -2,46 +2,48 @@
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
 #![recursion_limit = "256"]
 
-// Make the WASM binary available.
-#[cfg(feature = "std")]
-include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
-
-use pallet_grandpa::{
-	fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
-};
-use sp_api::impl_runtime_apis;
-use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
-use sp_runtime::{
-	create_runtime_str, generic, impl_opaque_keys,
-	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify},
-	transaction_validity::{TransactionSource, TransactionValidity},
-	ApplyExtrinsicResult, MultiSignature,
-};
-use sp_std::prelude::*;
-#[cfg(feature = "std")]
-use sp_version::NativeVersion;
-use sp_version::RuntimeVersion;
-
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
 	construct_runtime, parameter_types,
+	StorageValue,
 	traits::{KeyOwnerProofSystem, Randomness, StorageInfo},
 	weights::{
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
 		IdentityFee, Weight,
 	},
-	StorageValue,
 };
+use frame_support::traits::DenyAll;
 pub use pallet_balances::Call as BalancesCall;
+// Contracts Pallet
+use pallet_contracts::weights::WeightInfo;
+use pallet_grandpa::{
+	AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList, fg_primitives,
+};
 pub use pallet_timestamp::Call as TimestampCall;
-use pallet_transaction_payment::CurrencyAdapter;
+use pallet_transaction_payment::{CurrencyAdapter, Pallet};
+use sp_api::impl_runtime_apis;
+use sp_consensus_aura::sr25519::AuthorityId as AuraId;
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
+use sp_runtime::{
+	ApplyExtrinsicResult, create_runtime_str, generic,
+	impl_opaque_keys,
+	MultiSignature,
+	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify}, transaction_validity::{TransactionSource, TransactionValidity},
+};
+pub use sp_runtime::{Perbill, Permill};
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
-pub use sp_runtime::{Perbill, Permill};
+use sp_std::prelude::*;
+#[cfg(feature = "std")]
+use sp_version::NativeVersion;
+use sp_version::RuntimeVersion;
 
 /// Import the template pallet.
 pub use pallet_template;
+
+// Make the WASM binary available.
+#[cfg(feature = "std")]
+include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -67,9 +69,9 @@ pub type Hash = sp_core::H256;
 /// of data like extrinsics, allowing for them to continue syncing the network through upgrades
 /// to even the core data structures.
 pub mod opaque {
-	use super::*;
-
 	pub use sp_runtime::OpaqueExtrinsic as UncheckedExtrinsic;
+
+	use super::*;
 
 	/// Opaque block header type.
 	pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
@@ -206,7 +208,7 @@ impl pallet_grandpa::Config for Runtime {
 	type KeyOwnerProofSystem = ();
 
 	type KeyOwnerProof =
-		<Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
+	<Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(KeyTypeId, GrandpaId)>>::Proof;
 
 	type KeyOwnerIdentification = <Self::KeyOwnerProofSystem as KeyOwnerProofSystem<(
 		KeyTypeId,
@@ -288,6 +290,7 @@ construct_runtime!(
 		// Include the custom logic from the pallet-template in the runtime.
 		TemplateModule: pallet_template::{Pallet, Call, Storage, Event<T>},
 		Nicks: pallet_nicks::{Pallet, Call, Storage, Event<T>},
+		Contracts: pallet_contracts::{Pallet, Call, Storage, Event<T>},
 	}
 );
 
@@ -486,6 +489,46 @@ impl_runtime_apis! {
 			Ok((batches, storage_info))
 		}
 	}
+	impl pallet_contracts_rpc_runtime_api::ContractsApi<Block, AccountId, Balance, BlockNumber, Hash>
+   for Runtime
+   {
+      fn call(
+         origin: AccountId,
+         dest: AccountId,
+         value: Balance,
+         gas_limit: u64,
+         input_data: Vec<u8>,
+      ) -> pallet_contracts_primitives::ContractExecResult {
+         let debug = true;
+         Contracts::bare_call(origin, dest, value, gas_limit, input_data, debug)
+      }
+
+      fn instantiate(
+         origin: AccountId,
+         endowment: Balance,
+         gas_limit: u64,
+         code: pallet_contracts_primitives::Code<Hash>,
+         data: Vec<u8>,
+         salt: Vec<u8>,
+      ) -> pallet_contracts_primitives::ContractInstantiateResult<AccountId, BlockNumber> {
+         let compute_rent_projection = true;
+         let debug = true;
+         Contracts::bare_instantiate(origin, endowment, gas_limit, code, data, salt, compute_rent_projection, debug)
+      }
+
+      fn get_storage(
+         address: AccountId,
+         key: [u8; 32],
+      ) -> pallet_contracts_primitives::GetStorageResult {
+         Contracts::get_storage(address, key)
+      }
+
+      fn rent_projection(
+         address: AccountId,
+      ) -> pallet_contracts_primitives::RentProjectionResult<BlockNumber> {
+         Contracts::rent_projection(address)
+      }
+   }
 }
 
 // Add this code block to your template for Nicks:
@@ -523,3 +566,67 @@ impl pallet_nicks::Config for Runtime {
 	type Event = Event;
 }
 
+// Contracts Price Units
+pub const MILLICENTS: Balance = 1_000_000_000;
+pub const CENTS: Balance = 1_000 * MILLICENTS;
+pub const DOLLARS: Balance = 100 * CENTS;
+
+
+const fn deposit(items: u32, bytes: u32) -> Balance {
+	items as Balance * 15 * CENTS + (bytes as Balance) * 6 * CENTS
+}
+
+const AVERAGE_ON_INITIALIZE_RATIO: Perbill = Perbill::from_percent(10);
+
+parameter_types! {
+	pub TombstoneDeposit: Balance = deposit(1, <pallet_contracts::Pallet<Runtime>>::contract_info_size());
+	pub DepositPerContract: Balance = TombstoneDeposit::get();
+	pub const DepositPerStorageByte: Balance = deposit(0, 1);
+   pub const DepositPerStorageItem: Balance = deposit(1, 0);
+   pub RentFraction: Perbill = Perbill::from_rational(1u32, 30 * DAYS);
+   pub const SurchargeReward: Balance = 150 * MILLICENTS;
+   pub const SignedClaimHandicap: u32 = 2;
+   pub const MaxValueSize: u32 = 16 * 1024;
+   // The lazy deletion runs inside on_initialize.
+   pub DeletionWeightLimit: Weight = AVERAGE_ON_INITIALIZE_RATIO *
+      BlockWeights::get().max_block;
+   // The weight needed for decoding the queue should be less or equal than a fifth
+   // of the overall weight dedicated to the lazy deletion.
+   pub DeletionQueueDepth: u32 = ((DeletionWeightLimit::get() / (
+         <Runtime as pallet_contracts::Config>::WeightInfo::on_initialize_per_queue_item(1) -
+         <Runtime as pallet_contracts::Config>::WeightInfo::on_initialize_per_queue_item(0)
+      )) / 5) as u32;
+
+   pub Schedule: pallet_contracts::Schedule<Runtime> = Default::default();
+}
+impl pallet_contracts::Config for Runtime {
+	type Time = Timestamp;
+	type Randomness = RandomnessCollectiveFlip;
+	type Currency = Balances;
+	type Event = Event;
+	type RentPayment = ();
+	type SignedClaimHandicap = SignedClaimHandicap;
+	type TombstoneDeposit = TombstoneDeposit;
+	type DepositPerContract = DepositPerContract;
+	type DepositPerStorageByte = DepositPerStorageByte;
+	type DepositPerStorageItem = DepositPerStorageItem;
+	type RentFraction = RentFraction;
+	type SurchargeReward = SurchargeReward;
+	type WeightPrice = Pallet<Self>;
+	type WeightInfo = pallet_contracts::weights::SubstrateWeight<Self>;
+	type ChainExtension = ();
+	type DeletionQueueDepth = DeletionQueueDepth;
+	type DeletionWeightLimit = DeletionWeightLimit;
+	type Call = Call;
+	/// The safest default is to allow no calls at all.
+	///
+	/// Runtimes should whitelist dispatchables that are allowed to be called from contracts
+	/// and make sure they are stable. Dispatchables exposed to contracts are not allowed to
+	/// change because that would break already deployed contracts. The `Call` structure itself
+	/// is not allowed to change the indices of existing pallets, too.
+
+
+	type CallFilter = DenyAll;
+	type Schedule = Schedule;
+	type CallStack = [pallet_contracts::Frame<Self>; 31];
+}
