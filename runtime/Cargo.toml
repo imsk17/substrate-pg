@@ -17,6 +17,11 @@ default-features = false
 path = '../pallets/claim_pallet'
 version = '3.0.0-monthly-2021-08'
 
+[dependencies.counter-pallet]
+default-features = false
+path = '../pallets/counter_pallet'
+version = '3.0.0-monthly-2021-08'
+
 [dependencies.pallet-contracts]
 default-features = false
 git = 'https://github.com/paritytech/substrate.git'
@@ -234,6 +239,7 @@ std = [
 	'pallet-randomness-collective-flip/std',
 	'pallet-sudo/std',
 	'claim-pallet/std',
+	'counter-pallet/std',
 	'pallet-timestamp/std',
 	'pallet-nicks/std',
 	'pallet-contracts/std',

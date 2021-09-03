@@ -272,6 +272,10 @@ impl claim_pallet::Config for Runtime {
 	type Event = Event;
 }
 
+impl counter_pallet::Config for Runtime {
+	type Event = Event;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub enum Runtime where
@@ -291,6 +295,7 @@ construct_runtime!(
 		Claims: claim_pallet::{Pallet, Call, Storage, Event<T>},
 		Nicks: pallet_nicks::{Pallet, Call, Storage, Event<T>},
 		Contracts: pallet_contracts::{Pallet, Call, Storage, Event<T>},
+		Counter: counter_pallet::{Pallet, Call, Storage, Event<T>}
 	}
 );
 
